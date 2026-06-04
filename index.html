@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-select=none">
+    <title>লাউ রানার - নর্দান লাইট ও ন্যাচারাল স্নো সংস্করণ</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #0d1a2d; font-family: 'Segoe UI', Arial, sans-serif; touch-action: none; user-select: none; }
+        canvas { display: block; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; }
+        
+        /* ক্যারেক্টার নেম ট্যাগ */
+        .character-label {
+            color: #00ffcc;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            font-weight: bold;
+            font-size: 14px;
+            padding: 4px 12px;
+            background: rgba(0, 0, 0, 0.6);
+            border-radius: 20px;
+            border: 1px solid rgba(0, 255, 204, 0.5);
+            white-space: nowrap;
+            pointer-events: none;
+            backdrop-filter: blur(4px);
+        }
+
+        #top-bar { position: absolute; top: 15px; left: 0; width: 100%; display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box; z-index: 10; }
+        .ui-btn { background: rgba(255, 255, 255, 0.1); color: #fff; border: 1px solid rgba(255,255,255,0.3); padding: 10px 20px; border-radius: 15px; font-size: 13px; font-weight: bold; cursor: pointer; backdrop-filter: blur(10px); }
+        
+        #score-board { position: absolute; top: 70px; left: 20px; background: rgba(0, 0, 0, 0.4); color: #fff; padding: 8px 18px; border-radius: 15px; font-size: 18px; border: 1px solid rgba(255, 255, 255, 0.1); z-index: 10; }
+        #score-val { color: #00ffcc; font-weight: bold; }
+
+        #controls-container { position: absolute; bottom: 30px; width: 100%; display: flex; justify-content: space-around; align-items: center; z-index: 10; }
+        .nav-btn { width: 70px; height: 70px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: white; border-radius: 50%; font-size: 24px; cursor: pointer; backdrop-filter: blur(5px); }
+        #jump-btn { width: 90px; height: 90px; background: linear-gradient(135deg, #00d2ff, #3a7bd5); border: 2px solid #fff; color: white; border-radius: 50%; font-size: 18px; font-weight: bold; box-shadow: 0 0 20px rgba(0, 210, 255, 0.5); }
+
+        .overlay-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 10, 20, 0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; display: none; z-index: 20; backdrop-filter: blur(10px); }
+        #game-over-text { font-size: 36px; color: #ff4b2b; font-weight: bold; text-align: center; }
+        
+        #start-screen { position: absolute; top:0; left:0; width:100%; height:100%; background: radial-gradient(circle at center, #1e3a5f, #0d1a2d); display:flex; flex-direction: column; justify-content:center; align-items:center; z-index:100; }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS2DRenderer.js"></script>
+</head>
+<body>
+
+    <div id="start-screen">
+        <h1 style="color: white; text-align: center; margin-bottom: 30px;">❄️ লাউ রানার ❄️<br><span style="font-size: 16px; color: #00ffcc;">ন্যাচারাল লাইটিং ও স্নো সংস্করণ</span></h1>
+        <button class="ui-btn" style="padding: 15px 40px; font-size: 20px; background: #00ffcc; color: #000; border: none;" onclick="startTheGame()">খেলতে শুরু করুন</button>
+    </div>
+
+    <div id="top-bar">
+        <button class="ui-btn" onclick="togglePause()">PAUSE</button>
+        <button class="ui-btn" onclick="restartGame()">RESTART</button>
+    </div>
+
+    <div id="score-board">স্কোর: <span id="score-val">0</span></div>
+
+    <div id="controls-container">
+        <button class="nav-btn" id="left-btn">◀</button>
+        <button id="jump-btn">JUMP</button>
+        <button class="nav-btn" id="right-btn">▶</button>
+    </div>
+
+    <div id="game-over-screen" class="overlay-screen">
+        <div id="game-over-text">গেম ওভার!</div>
+        <div id="final-score" style="color: white; font-size: 20px; margin-top: 10px;"></div>
+        <button class="ui-btn" style="margin-top:20px; background: #ff4b2b; border: none;" onclick="restartGame()">আবার চেষ্টা করুন</button>
+    </div>
+
+    <div id="pause-screen" class="overlay-screen">
+        <h2 style="color: white;">বিরতি ⏸</h2>
+        <button class="ui-btn" onclick="togglePause()">চালু করুন</button>
+    </div>
+
+    <script>
+        let scene, camera, renderer, labelRenderer, player, thief, wife;
+        let obstacles = [], environmentObjects = [], snowflakes = [];
+        let lanes = [-2.2, 0, 2.2], currentLane = 1, targetX = 0;
+        
+        let isGrounded = true, playerVelocityY = 0;
+        const gravity = -0.015, jumpForce = 0.28; 
+
+        let gameActive = false, isPaused = false;
+        const baseSpeed = 0.25; 
+        let speed = baseSpeed, score = 0, animationTime = 0, spawnTimer = 0;
+
+        function startTheGame() {
+            document.getElementById('start-screen').style.display = 'none';
+            gameActive = true;
+            init();
+            animate();
+            setupControls();
+        }
+
+        function setupControls() {
+            const triggerJump = () => { if(isGrounded && gameActive && !isPaused) { playerVelocityY = jumpForce; isGrounded = false; } };
+            const move = (d) => { currentLane = Math.max(0, Math.min(2, currentLane + d)); targetX = lanes[currentLane]; };
+
+            document.getElementById('jump-btn').addEventListener('touchstart', (e) => { e.preventDefault(); triggerJump(); });
+            document.getElementById('left-btn').addEventListener('touchstart', (e) => { e.preventDefault(); move(-1); });
+            document.getElementById('right-btn').addEventListener('touchstart', (e) => { e.preventDefault(); move(1); });
+            window.addEventListener('keydown', (e) => {
+                if(e.code === 'Space' || e.code === 'ArrowUp') triggerJump();
+                if(e.code === 'ArrowLeft') move(-1);
+                if(e.code === 'ArrowRight') move(1);
+            });
+        }
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a1425);
+            scene.fog = new THREE.FogExp2(0x0a1425, 0.012);
+
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(0, 5, 9);
+            camera.lookAt(0, 1.5, -5);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.toneMapping = THREE.ReinhardToneMapping;
+            renderer.toneMappingExposure = 1.2;
+            document.body.appendChild(renderer.domElement);
+
+            labelRenderer = new THREE.CSS2DRenderer();
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.domElement.style.position = 'absolute';
+            labelRenderer.domElement.style.top = '0';
+            labelRenderer.domElement.style.pointerEvents = 'none';
+            document.body.appendChild(labelRenderer.domElement);
+
+            // ন্যাচারাল উজ্জ্বল লাইটিং (সূর্যের আলো বৃদ্ধি)
+            let amb = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(amb);
+
+            let sun = new THREE.DirectionalLight(0xfff0dd, 2.5); // শক্তিশালী সূর্যের আলো
+            sun.position.set(-20, 25, -30);
+            sun.castShadow = true;
+            sun.shadow.mapSize.width = 2048;
+            scene.add(sun);
+
+            // রাস্তা ও বরফ
+            let road = new THREE.Mesh(new THREE.BoxGeometry(7.5, 0.2, 1000), new THREE.MeshStandardMaterial({ color: 0x1a2533 }));
+            road.position.z = -450; road.receiveShadow = true;
+            scene.add(road);
+
+            let snowL = new THREE.Mesh(new THREE.BoxGeometry(50, 0.1, 1000), new THREE.MeshStandardMaterial({ color: 0xffffff }));
+            snowL.position.set(-29, -0.05, -450); snowL.receiveShadow = true;
+            scene.add(snowL);
+            let snowR = snowL.clone(); snowR.position.x = 29; scene.add(snowR);
+
+            // তুষারপাত কণা
+            let snowGeo = new THREE.BufferGeometry();
+            let snowCoords = [];
+            for(let i=0; i<800; i++) snowCoords.push((Math.random()-0.5)*50, Math.random()*25, (Math.random()-0.5)*60);
+            snowGeo.setAttribute('position', new THREE.Float32BufferAttribute(snowCoords, 3));
+            let snowPoints = new THREE.Points(snowGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.1, transparent: true }));
+            scene.add(snowPoints);
+            snowflakes.push(snowPoints);
+
+            // প্লেয়ার: হুসাইন (ঘন চুল)
+            player = new THREE.Group();
+            let body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.0, 0.5), new THREE.MeshStandardMaterial({ color: 0x2c3e50 }));
+            body.position.y = 1.3; body.castShadow = true; player.add(body);
+            
+            let head = new THREE.Mesh(new THREE.SphereGeometry(0.28, 20, 20), new THREE.MeshStandardMaterial({ color: 0xffdbac }));
+            head.position.y = 2.0; head.castShadow = true; player.add(head);
+            
+            // একগাদা ঘন চুল
+            let hair = new THREE.Mesh(new THREE.SphereGeometry(0.3, 15, 15), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+            hair.position.set(0, 2.1, 0); hair.scale.set(1.1, 0.8, 1.2); player.add(hair);
+
+            pLeftLeg = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.6), new THREE.MeshStandardMaterial({ color: 0xffdbac }));
+            pLeftLeg.position.set(-0.25, 0.4, 0); player.add(pLeftLeg);
+            pRightLeg = pLeftLeg.clone(); pRightLeg.position.x = 0.25; player.add(pRightLeg);
+            
+            scene.add(player);
+
+            // হুসাইন নাম ট্যাগ
+            const div = document.createElement('div');
+            div.className = 'character-label';
+            div.textContent = 'হুসাইন';
+            const label = new THREE.CSS2DObject(div);
+            label.position.set(0, 2.8, 0);
+            player.add(label);
+
+            // চোর (কালো মাস্ক)
+            thief = new THREE.Group();
+            let tBody = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.0, 0.5), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+            tBody.position.y = 1.3; thief.add(tBody);
+            let tHead = new THREE.Mesh(new THREE.SphereGeometry(0.28, 20, 20), new THREE.MeshStandardMaterial({ color: 0xffdbac }));
+            tHead.position.y = 2.0; thief.add(tHead);
+            let mask = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.2, 0.4), new THREE.MeshStandardMaterial({ color: 0x000000 }));
+            mask.position.set(0, 2.0, -0.1); thief.add(mask);
+            thief.position.z = -12;
+            scene.add(thief);
+
+            // বউ
+            wife = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.3, 1.1), new THREE.MeshStandardMaterial({ color: 0xe91e63 }));
+            wife.rotation.z = Math.PI/2.5;
+            scene.add(wife);
+
+            for(let i=0; i<15; i++) spawnTree((Math.random()*-300)-20);
+        }
+
+        function spawnTree(z) {
+            let tree = new THREE.Group();
+            let trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.2, 2.5), new THREE.MeshStandardMaterial({ color: 0x3e2723 }));
+            trunk.position.y = 1.25; tree.add(trunk);
+            let leaves = new THREE.Mesh(new THREE.ConeGeometry(1.2, 2.5, 8), new THREE.MeshStandardMaterial({ color: 0x2e7d32 }));
+            leaves.position.y = 3; tree.add(leaves);
+            tree.position.set(Math.random() > 0.5 ? 6 : -6, 0, z);
+            scene.add(tree); environmentObjects.push(tree);
+        }
+
+        function spawnLau() {
+            let lau = new THREE.Group();
+            let mat = new THREE.MeshStandardMaterial({ color: 0x99ff66, roughness: 0.1, metalness: 0.2 }); // লাউ এখন উজ্জ্বল দেখাবে
+            let b = new THREE.Mesh(new THREE.SphereGeometry(0.45, 16, 16), mat);
+            b.position.y = 0.45; lau.add(b);
+            let n = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.3, 0.7), mat);
+            n.position.y = 0.9; lau.add(n);
+            lau.position.set(lanes[Math.floor(Math.random()*3)], 0, -100);
+            scene.add(lau); obstacles.push(lau);
+        }
+
+        function gameOver() { gameActive = false; document.getElementById('game-over-screen').style.display = 'flex'; document.getElementById('final-score').textContent = "আপনার স্কোর: " + Math.floor(score); }
+        function restartGame() { location.reload(); }
+        function togglePause() { isPaused = !isPaused; document.getElementById('pause-screen').style.display = isPaused ? 'flex' : 'none'; }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if(gameActive && !isPaused) {
+                animationTime += 0.2;
+                score += 0.1;
+                document.getElementById('score-val').textContent = Math.floor(score);
+                speed += 0.00005; // চ্যালেঞ্জিং স্পিড বৃদ্ধি
+
+                player.position.x = THREE.MathUtils.lerp(player.position.x, targetX, 0.15);
+                player.position.y += playerVelocityY;
+                playerVelocityY += gravity;
+                if(player.position.y <= 0) { player.position.y = 0; playerVelocityY = 0; isGrounded = true; }
+
+                pLeftLeg.rotation.x = Math.sin(animationTime)*0.8;
+                pRightLeg.rotation.x = -Math.sin(animationTime)*0.8;
+
+                thief.position.z = player.position.z - 12;
+                thief.position.x = THREE.MathUtils.lerp(thief.position.x, player.position.x, 0.05);
+                wife.position.set(thief.position.x + 0.4, 1.4, thief.position.z);
+
+                camera.position.x = player.position.x * 0.4;
+                camera.position.z = player.position.z + 9;
+
+                for(let s of snowflakes) {
+                    let p = s.geometry.attributes.position.array;
+                    for(let i=1; i<p.length; i+=3) { p[i] -= 0.05; if(p[i]<0) p[i]=25; }
+                    s.geometry.attributes.position.needsUpdate = true;
+                }
+
+                spawnTimer++;
+                if(spawnTimer > 40) { spawnLau(); spawnTimer = 0; if(Math.random()>0.7) spawnTree(-150); }
+
+                obstacles.forEach((o, i) => {
+                    o.position.z += speed;
+                    if(Math.abs(o.position.z - player.position.z) < 0.8 && Math.abs(o.position.x - player.position.x) < 0.7 && player.position.y < 1.1) gameOver();
+                    if(o.position.z > 15) { scene.remove(o); obstacles.splice(i, 1); }
+                });
+
+                environmentObjects.forEach((e, i) => {
+                    e.position.z += speed;
+                    if(e.position.z > 15) { scene.remove(e); environmentObjects.splice(i, 1); }
+                });
+            }
+            renderer.render(scene, camera);
+            labelRenderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            labelRenderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
